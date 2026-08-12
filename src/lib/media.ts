@@ -13,15 +13,15 @@ export const frameStyles: { id: FrameStyle; name: string; note: string; ink: str
 ]
 
 export function frameGeometry(layout: Layout, scale = 1) {
-  const width = (layout === 'vertical' ? 1080 : 1920) * scale
-  const height = (layout === 'vertical' ? 1920 : 1080) * scale
+  const width = 1080 * scale
+  const height = 1920 * scale
   const edge = 58 * scale
   const title = 180 * scale
   const gap = 30 * scale
   const footer = 160 * scale
   const slots = layout === 'vertical'
     ? Array.from({ length: 3 }, (_, index) => ({ x: edge, y: title + index * ((height - title - footer - gap * 2) / 3 + gap), width: width - edge * 2, height: (height - title - footer - gap * 2) / 3 }))
-    : Array.from({ length: 3 }, (_, index) => ({ x: edge + index * ((width - edge * 2 - gap * 2) / 3 + gap), y: title, width: (width - edge * 2 - gap * 2) / 3, height: height - title - footer }))
+    : Array.from({ length: 3 }, (_, index) => ({ x: edge + index * ((width - edge * 2 - gap * 2) / 3 + gap), y: height * .29, width: (width - edge * 2 - gap * 2) / 3, height: height * .43 }))
   return { width, height, edge, slots }
 }
 
@@ -54,11 +54,15 @@ function paintFrame(ctx: CanvasRenderingContext2D, layout: Layout, styleId: Fram
     for (let x = edge; x < width - edge; x += edge * .42) { ctx.fillRect(x, edge * .55, line * 1.2, line * 2); ctx.fillRect(x, height - edge * .72, line * 1.2, line * 2) }
   }
   ctx.textAlign = 'center'; ctx.fillStyle = style.ink
-  ctx.font = `700 ${Math.round(edge * .38)}px Georgia, serif`; ctx.fillText('STUDIO 9060', width / 2, edge * 1.18)
+  ctx.font = `700 ${Math.round(edge * .42)}px Georgia, serif`; ctx.fillText('STUDIO9060', width / 2, edge * 1.18)
   ctx.font = `italic ${Math.round(edge * .28)}px Georgia, serif`; ctx.fillText(style.name.toUpperCase(), width / 2, height - edge * .82)
+  ctx.lineWidth = line
+  ctx.beginPath(); ctx.arc(width / 2, height - edge * 1.42, edge * .25, 0, Math.PI * 2); ctx.stroke()
+  ctx.beginPath(); ctx.arc(width / 2, height - edge * 1.42, edge * .09, 0, Math.PI * 2); ctx.fill()
+  ctx.strokeRect(width / 2 - edge * .42, height - edge * 1.77, edge * .84, edge * .68)
 }
 
-function widthScale(width: number, layout: Layout) { return width / (layout === 'vertical' ? 1080 : 1920) }
+function widthScale(width: number, _layout: Layout) { return width / 1080 }
 
 function canvasBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
   return new Promise<Blob>((resolve, reject) =>
@@ -75,13 +79,12 @@ function drawCover(ctx: CanvasRenderingContext2D, image: CanvasImageSource, sour
   ctx.drawImage(image, sourceX, sourceY, cropWidth, cropHeight, x, y, width, height)
 }
 
-export async function captureFrame(video: HTMLVideoElement) {
+export async function captureFrame(video: HTMLVideoElement, mirror = true) {
   const canvas = document.createElement('canvas')
   canvas.width = video.videoWidth
   canvas.height = video.videoHeight
   const ctx = canvas.getContext('2d')!
-  ctx.translate(canvas.width, 0)
-  ctx.scale(-1, 1)
+  if (mirror) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1) }
   ctx.drawImage(video, 0, 0)
   return canvasBlob(canvas, 'image/jpeg', 0.94)
 }
