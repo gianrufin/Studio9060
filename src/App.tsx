@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, Check, Download, RefreshCw, RotateCcw, Share2, Sparkles, Volume2, VolumeX } from 'lucide-react'
 import { useCamera } from './hooks/useCamera'
-import { captureFrame, compileReel, composePhotos, FrameStyle, frameStyles, Layout, preferredRecordingType } from './lib/media'
+import { captureFrame, compileReel, composePhotos, FilterStyle, filterStyles, FrameStyle, framePreview, frameStyles, Layout, preferredRecordingType } from './lib/media'
 
 type Screen = 'welcome' | 'frames' | 'camera' | 'processing' | 'results'
 type Status = 'idle' | 'countdown' | 'flash' | 'review'
@@ -13,6 +13,7 @@ function App() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const layout: Layout = 'vertical'
   const [frameStyle, setFrameStyle] = useState<FrameStyle>('noir')
+  const [filterStyle, setFilterStyle] = useState<FilterStyle>('vintage')
   const [status, setStatus] = useState<Status>('idle')
   const [count, setCount] = useState(5)
   const [shot, setShot] = useState(0)
@@ -81,13 +82,14 @@ function App() {
         await sleep(1200)
       }
       setScreen('processing')
-      const strip = await composePhotos(photos, layout, frameStyle)
+      setProgress('Composing your photo strip')
+      const strip = await composePhotos(photos, layout, frameStyle, filterStyle)
       setJpeg(strip)
       if (clips.length === quota) {
         try {
           reelAbort.current = new AbortController()
           setProgress('Starting the local video engine')
-          setReel(await compileReel(clips, layout, frameStyle, setProgress, reelAbort.current.signal))
+          setReel(await compileReel(clips, layout, frameStyle, filterStyle, setProgress, reelAbort.current.signal))
         }
         catch { setVideoWarning('The photo strip is ready, but this browser could not create the MP4 reel.'); setReel(null) }
       } else setVideoWarning('Video recording is not supported by this browser. Your photo strip is ready.')
@@ -97,12 +99,7 @@ function App() {
       setStatus('idle')
       setScreen('camera')
     } finally { reelAbort.current = null; running.current = false }
-  }, [facingMode, frameStyle, layout, muted, quota, streamRef, videoRef])
-
-  const files = () => [
-    jpeg && new File([jpeg], `studio9060-${Date.now()}-strip.jpg`, { type: 'image/jpeg' }),
-    reel && new File([reel], `studio9060-${Date.now()}-reel.mp4`, { type: 'video/mp4' }),
-  ].filter(Boolean) as File[]
+  }, [facingMode, filterStyle, frameStyle, layout, muted, quota, streamRef, videoRef])
 
   const saveFile = async (kind: 'photo' | 'video') => {
     setSaveError(null)
@@ -119,7 +116,13 @@ function App() {
     }
   }
 
-  const reset = () => { setJpeg(null); setReel(null); setShot(0); setStatus('idle'); setVideoWarning(null); setScreen('camera') }
+  const reset = async () => {
+    setJpeg(null); setReel(null); setShot(0); setStatus('idle'); setVideoWarning(null); setSaveError(null); setScreen('camera')
+    await sleep(80)
+    const video = videoRef.current
+    if (video && streamRef.current?.active) { video.srcObject = streamRef.current; await video.play().catch(() => start()) }
+    else await start()
+  }
 
   const skipReel = () => {
     reelAbort.current?.abort()
@@ -139,14 +142,17 @@ function App() {
     <header><div className="brand">STUDIO <span>9060</span></div><p>1 / 2</p></header>
     <section className="frameIntro"><p className="eyebrow">CHOOSE YOUR LOOK</p><h2>A frame for<br/><em>every story.</em></h2><p>Choose a vintage finish for your three-photo Story strip.</p></section>
     <div className="frameList">
-      {frameStyles.map((frame) => <button key={frame.id} className={`frameCard ${frameStyle === frame.id ? 'selected' : ''}`} onClick={() => setFrameStyle(frame.id)} style={{ '--paper': frame.paper, '--ink': frame.ink } as React.CSSProperties}>
-        <span className="miniFrame"><b>STUDIO9060</b><i/><i/><i/><em>◉</em></span><span className="frameMeta"><strong>{frame.name}</strong><small>{frame.note}</small></span><span className="radio">{frameStyle === frame.id && <Check/>}</span>
+      {frameStyles.map((frame) => <button key={frame.id} className={`frameCard ${frameStyle === frame.id ? 'selected' : ''}`} onClick={() => setFrameStyle(frame.id)}>
+        <img className="miniFrame" src={framePreview(frame.id)} alt={`${frame.name} frame preview`}/><span className="frameMeta"><strong>{frame.name}</strong><small>{frame.note}</small></span><span className="radio">{frameStyle === frame.id && <Check/>}</span>
       </button>)}
     </div>
+    <section className="filterSection"><p className="eyebrow">CHOOSE A FILTER</p><div className="filterList">
+      {filterStyles.map((filter) => <button key={filter.id} className={filterStyle === filter.id ? 'selected' : ''} onClick={() => setFilterStyle(filter.id)}><span style={{ filter: filter.css }}/><small>{filter.name}</small></button>)}
+    </div></section>
     <button className="primary dark" onClick={openCamera}><Camera size={20}/> Continue to camera</button>
   </main>
 
-  if (screen === 'processing') return <main className="processing"><div className="spinner"/><p className="eyebrow">KEEP THIS SCREEN OPEN</p><h2>{progress}</h2><p>Everything is being made privately on your device.</p>{jpeg && <button className="skipButton" onClick={skipReel}>Skip reel and show photos</button>}</main>
+  if (screen === 'processing') return <main className="processing"><div className="materialMark">9060</div><div className="waveLoader"><i/><i/><i/></div><p className="eyebrow">PROCESSING ON DEVICE</p><h2>{progress}</h2><p>No estimated percentage. Processing time depends on your phone.</p>{jpeg && <button className="textButton" onClick={skipReel}>Skip reel and show photos</button>}</main>
 
   if (screen === 'results') return <main className="results">
     <header><div className="brand">STUDIO <span>9060</span></div><button className="iconButton" onClick={reset} aria-label="New session"><RotateCcw/></button></header>

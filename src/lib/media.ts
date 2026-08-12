@@ -3,6 +3,16 @@ import { fetchFile } from '@ffmpeg/util'
 
 export type Layout = 'vertical' | 'horizontal'
 export type FrameStyle = 'noir' | 'ivory' | 'sepia' | 'deco' | 'silver'
+export type FilterStyle = 'clean' | 'vintage' | 'sepia' | 'mono' | 'cinema' | 'chrome'
+
+export const filterStyles: { id: FilterStyle; name: string; css: string; ffmpeg: string }[] = [
+  { id: 'clean', name: 'Original', css: 'none', ffmpeg: 'null' },
+  { id: 'vintage', name: 'Vintage Fade', css: 'sepia(.22) saturate(.78) contrast(.92) brightness(1.06)', ffmpeg: 'eq=contrast=0.92:brightness=0.04:saturation=0.78,colorbalance=rs=.08:gs=.03:bs=-.04' },
+  { id: 'sepia', name: 'Sepia', css: 'sepia(.78) saturate(.82) contrast(1.04)', ffmpeg: 'colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131' },
+  { id: 'mono', name: 'B&W Film', css: 'grayscale(1) contrast(1.18) brightness(.96)', ffmpeg: 'hue=s=0,eq=contrast=1.18:brightness=-.02' },
+  { id: 'cinema', name: 'Cinematic', css: 'contrast(1.12) saturate(.86) sepia(.12) hue-rotate(-6deg)', ffmpeg: 'eq=contrast=1.12:saturation=.86,colorbalance=rs=.06:gs=.01:bs=-.06' },
+  { id: 'chrome', name: 'Cool Chrome', css: 'contrast(1.1) saturate(.72) hue-rotate(8deg) brightness(1.02)', ffmpeg: 'eq=contrast=1.1:saturation=.72:brightness=.02,colorbalance=rs=-.05:gs=.01:bs=.08' },
+]
 
 export const frameStyles: { id: FrameStyle; name: string; note: string; ink: string; paper: string }[] = [
   { id: 'noir', name: 'Victorian Noir', note: 'Ornate & dramatic', ink: '#e7d9ba', paper: '#171615' },
@@ -62,6 +72,22 @@ function paintFrame(ctx: CanvasRenderingContext2D, layout: Layout, styleId: Fram
   ctx.strokeRect(width / 2 - edge * .42, height - edge * 1.77, edge * .84, edge * .68)
 }
 
+export function framePreview(style: FrameStyle) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 270; canvas.height = 480
+  const ctx = canvas.getContext('2d')!
+  const frame = frameStyles.find((item) => item.id === style)!
+  ctx.fillStyle = frame.paper; ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const { slots } = frameGeometry('vertical', .25)
+  slots.forEach((slot, index) => {
+    const gradient = ctx.createLinearGradient(slot.x, slot.y, slot.x + slot.width, slot.y + slot.height)
+    gradient.addColorStop(0, ['#62564d', '#8b8179', '#93724f'][index]); gradient.addColorStop(1, ['#c8b5a0', '#afa299', '#d1b389'][index])
+    ctx.fillStyle = gradient; ctx.fillRect(slot.x, slot.y, slot.width, slot.height)
+  })
+  paintFrame(ctx, 'vertical', style, true)
+  return canvas.toDataURL('image/png')
+}
+
 function widthScale(width: number, _layout: Layout) { return width / 1080 }
 
 function canvasBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
@@ -70,13 +96,13 @@ function canvasBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
   )
 }
 
-function drawCover(ctx: CanvasRenderingContext2D, image: CanvasImageSource, sourceWidth: number, sourceHeight: number, x: number, y: number, width: number, height: number) {
+function drawCover(ctx: CanvasRenderingContext2D, image: CanvasImageSource, sourceWidth: number, sourceHeight: number, x: number, y: number, width: number, height: number, filter = 'none') {
   const scale = Math.max(width / sourceWidth, height / sourceHeight)
   const cropWidth = width / scale
   const cropHeight = height / scale
   const sourceX = (sourceWidth - cropWidth) / 2
   const sourceY = (sourceHeight - cropHeight) / 2
-  ctx.drawImage(image, sourceX, sourceY, cropWidth, cropHeight, x, y, width, height)
+  ctx.save(); ctx.filter = filter; ctx.drawImage(image, sourceX, sourceY, cropWidth, cropHeight, x, y, width, height); ctx.restore()
 }
 
 export async function captureFrame(video: HTMLVideoElement, mirror = true) {
@@ -89,7 +115,7 @@ export async function captureFrame(video: HTMLVideoElement, mirror = true) {
   return canvasBlob(canvas, 'image/jpeg', 0.94)
 }
 
-export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameStyle) {
+export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameStyle, filter: FilterStyle) {
   const canvas = document.createElement('canvas')
   const geometry = frameGeometry(layout)
   canvas.width = geometry.width
@@ -102,7 +128,8 @@ export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameS
     return bitmap
   }))
 
-  images.forEach((image, index) => { const slot = geometry.slots[index]; drawCover(ctx, image, image.width, image.height, slot.x, slot.y, slot.width, slot.height) })
+  const photoFilter = filterStyles.find((item) => item.id === filter)!.css
+  images.forEach((image, index) => { const slot = geometry.slots[index]; drawCover(ctx, image, image.width, image.height, slot.x, slot.y, slot.width, slot.height, photoFilter) })
   paintFrame(ctx, layout, style, true)
   images.forEach((image) => image.close())
   return canvasBlob(canvas, 'image/jpeg', 0.9)
@@ -121,38 +148,41 @@ export function preferredRecordingType() {
   return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? ''
 }
 
-export async function compileReel(clips: Blob[], layout: Layout, style: FrameStyle, onProgress: (message: string) => void, signal?: AbortSignal) {
+export async function compileReel(clips: Blob[], layout: Layout, style: FrameStyle, selectedFilter: FilterStyle, onProgress: (message: string) => void, signal?: AbortSignal) {
   const ffmpeg = new FFmpeg()
   let timeoutId: number | undefined
   const stop = () => ffmpeg.terminate()
   signal?.addEventListener('abort', stop, { once: true })
-  ffmpeg.on('progress', ({ progress }) => onProgress(`Making your reel ${Math.max(1, Math.round(progress * 100))}%`))
   try {
     const timeout = new Promise<never>((_, reject) => {
       timeoutId = window.setTimeout(() => { stop(); reject(new Error('Video processing timed out')) }, 75_000)
     })
     return await Promise.race([(async () => {
       const ffmpegBase = `${import.meta.env.BASE_URL}ffmpeg/`
+      onProgress('Loading the video engine')
       await ffmpeg.load({ coreURL: `${ffmpegBase}ffmpeg-core.js`, wasmURL: `${ffmpegBase}ffmpeg-core.wasm` })
       if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
       for (let index = 0; index < clips.length; index += 1) {
         await ffmpeg.writeFile(`clip${index}.webm`, await fetchFile(clips[index]))
       }
+      onProgress('Composing your moving frame')
       await ffmpeg.writeFile('frame.png', await fetchFile(await createVideoFrame(layout, style)))
       const geometry = frameGeometry(layout, 2 / 3)
       const inputs = clips.flatMap((_, index) => ['-i', `clip${index}.webm`])
-      const prepared = clips.map((_, index) => {
+      const prepared: string = clips.map((_, index): string => {
         const slot = geometry.slots[index]
-        return `[${index}:v]scale=${Math.round(slot.width)}:${Math.round(slot.height)}:force_original_aspect_ratio=increase,crop=${Math.round(slot.width)}:${Math.round(slot.height)},fps=15,setsar=1[v${index}]`
+        const videoFilter: string = filterStyles.find((item) => item.id === selectedFilter)!.ffmpeg
+        return `[${index}:v]scale=${Math.round(slot.width)}:${Math.round(slot.height)}:force_original_aspect_ratio=increase,crop=${Math.round(slot.width)}:${Math.round(slot.height)},${videoFilter},fps=15,setsar=1[v${index}]`
       }).join(';')
       let overlays = `[v0]pad=${geometry.width}:${geometry.height}:${Math.round(geometry.slots[0].x)}:${Math.round(geometry.slots[0].y)}:color=${frameStyles.find((item) => item.id === style)!.paper.replace('#', '0x')}[stage0]`
       for (let index = 1; index < clips.length; index += 1) { const slot = geometry.slots[index]; overlays += `;[stage${index - 1}][v${index}]overlay=${Math.round(slot.x)}:${Math.round(slot.y)}[stage${index}]` }
-      const filter = `${prepared};${overlays};[stage${clips.length - 1}][${clips.length}:v]overlay=0:0[outv]`
+      const filterGraph = `${prepared};${overlays};[stage${clips.length - 1}][${clips.length}:v]overlay=0:0[outv]`
       await ffmpeg.exec([
-        ...inputs, '-loop', '1', '-i', 'frame.png', '-filter_complex', filter, '-map', '[outv]', '-t', '5', '-an',
+        ...inputs, '-loop', '1', '-i', 'frame.png', '-filter_complex', filterGraph, '-map', '[outv]', '-t', '5', '-an',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-pix_fmt', 'yuv420p',
         '-movflags', '+faststart', 'studio9060-reel.mp4',
       ])
+      onProgress('Finishing your files')
       const data = await ffmpeg.readFile('studio9060-reel.mp4')
       const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
       return new Blob([new Uint8Array(bytes)], { type: 'video/mp4' })
