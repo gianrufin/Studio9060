@@ -66,7 +66,8 @@ export function preferredRecordingType() {
 export async function compileReel(clips: Blob[], onProgress: (message: string) => void) {
   const ffmpeg = new FFmpeg()
   ffmpeg.on('progress', ({ progress }) => onProgress(`Making your reel ${Math.max(1, Math.round(progress * 100))}%`))
-  await ffmpeg.load({ coreURL: '/ffmpeg/ffmpeg-core.js', wasmURL: '/ffmpeg/ffmpeg-core.wasm' })
+  const ffmpegBase = `${import.meta.env.BASE_URL}ffmpeg/`
+  await ffmpeg.load({ coreURL: `${ffmpegBase}ffmpeg-core.js`, wasmURL: `${ffmpegBase}ffmpeg-core.wasm` })
   for (let index = 0; index < clips.length; index += 1) {
     await ffmpeg.writeFile(`clip${index}.webm`, await fetchFile(clips[index]))
   }
