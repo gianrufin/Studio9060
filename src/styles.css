@@ -46,6 +46,7 @@ button { cursor: pointer; }
 .processing { min-height: 100dvh; background: #f3efe5; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 2rem; text-align: center; }
 .processing h2, .results h2 { font: 400 clamp(2.4rem, 11vw, 4rem)/1 Georgia, serif; margin: .7rem 0; }
 .processing > p:last-child { color: #6f6a62; max-width: 19rem; line-height: 1.5; }
+.skipButton { margin-top: 1.25rem; padding: .8rem 1rem; border: 0; border-bottom: 1px solid #777168; background: transparent; color: #4f4b45; font-size: .75rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .spinner { width: 4rem; height: 4rem; border: 2px solid #d5cfc2; border-top-color: #d75b34; border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 2rem; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .results { min-height: 100dvh; background: #f3efe5; padding: max(5.5rem, calc(env(safe-area-inset-top) + 4rem)) 1.25rem max(1.5rem, env(safe-area-inset-bottom)); }

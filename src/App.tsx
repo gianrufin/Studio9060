@@ -20,6 +20,7 @@ function App() {
   const [reel, setReel] = useState<Blob | null>(null)
   const [videoWarning, setVideoWarning] = useState<string | null>(null)
   const running = useRef(false)
+  const reelAbort = useRef<AbortController | null>(null)
 
   const quota = layout === 'strip' ? 3 : 4
   const jpegUrl = useMemo(() => jpeg ? URL.createObjectURL(jpeg) : null, [jpeg])
@@ -66,7 +67,11 @@ function App() {
       const strip = await composePhotos(photos, layout)
       setJpeg(strip)
       if (clips.length === quota) {
-        try { setProgress('Starting the local video engine'); setReel(await compileReel(clips, setProgress)) }
+        try {
+          reelAbort.current = new AbortController()
+          setProgress('Starting the local video engine')
+          setReel(await compileReel(clips, setProgress, reelAbort.current.signal))
+        }
         catch { setVideoWarning('The photo strip is ready, but this browser could not create the MP4 reel.'); setReel(null) }
       } else setVideoWarning('Video recording is not supported by this browser. Your photo strip is ready.')
       setScreen('results')
@@ -74,7 +79,7 @@ function App() {
       setVideoWarning('The session was interrupted. Please try again.')
       setStatus('idle')
       setScreen('camera')
-    } finally { running.current = false }
+    } finally { reelAbort.current = null; running.current = false }
   }, [layout, quota, streamRef, videoRef])
 
   const files = () => [
@@ -89,6 +94,13 @@ function App() {
 
   const reset = () => { setJpeg(null); setReel(null); setShot(0); setStatus('idle'); setVideoWarning(null); setScreen('camera') }
 
+  const skipReel = () => {
+    reelAbort.current?.abort()
+    setVideoWarning('Video processing was skipped. Your photo strip is ready to save.')
+    setReel(null)
+    setScreen('results')
+  }
+
   if (screen === 'welcome') return <main className="welcome">
     <div className="brand">STUDIO <span>9060</span></div>
     <section><p className="eyebrow"><Sparkles size={14}/> PRIVATE BY DESIGN</p><h1>Your pocket<br/><em>photo studio.</em></h1><p className="lede">No uploads. No accounts. Just you, your camera, and a little bit of magic.</p></section>
@@ -96,7 +108,7 @@ function App() {
     <p className="privacy">Everything stays on this device.</p>
   </main>
 
-  if (screen === 'processing') return <main className="processing"><div className="spinner"/><p className="eyebrow">KEEP THIS SCREEN OPEN</p><h2>{progress}</h2><p>Everything is being made privately on your device.</p></main>
+  if (screen === 'processing') return <main className="processing"><div className="spinner"/><p className="eyebrow">KEEP THIS SCREEN OPEN</p><h2>{progress}</h2><p>Everything is being made privately on your device.</p>{jpeg && <button className="skipButton" onClick={skipReel}>Skip reel and show photos</button>}</main>
 
   if (screen === 'results') return <main className="results">
     <header><div className="brand">STUDIO <span>9060</span></div><button className="iconButton" onClick={reset} aria-label="New session"><RotateCcw/></button></header>
