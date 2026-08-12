@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, Download, RectangleHorizontal, RectangleVertical, RefreshCw, RotateCcw, Share2, Sparkles, Volume2, VolumeX } from 'lucide-react'
+import { Camera, Check, Download, RefreshCw, RotateCcw, Share2, Sparkles, Volume2, VolumeX } from 'lucide-react'
 import { useCamera } from './hooks/useCamera'
 import { captureFrame, compileReel, composePhotos, FrameStyle, frameStyles, Layout, preferredRecordingType } from './lib/media'
 
@@ -11,7 +11,7 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
 function App() {
   const { videoRef, streamRef, ready, error, facingMode, start, flip } = useCamera()
   const [screen, setScreen] = useState<Screen>('welcome')
-  const [layout, setLayout] = useState<Layout>('vertical')
+  const layout: Layout = 'vertical'
   const [frameStyle, setFrameStyle] = useState<FrameStyle>('noir')
   const [status, setStatus] = useState<Status>('idle')
   const [count, setCount] = useState(5)
@@ -137,13 +137,12 @@ function App() {
 
   if (screen === 'frames') return <main className="frameScreen">
     <header><div className="brand">STUDIO <span>9060</span></div><p>1 / 2</p></header>
-    <section className="frameIntro"><p className="eyebrow">CHOOSE YOUR LOOK</p><h2>A frame for<br/><em>every story.</em></h2><p>Pick a vintage finish, then choose how your three moments will be arranged.</p></section>
+    <section className="frameIntro"><p className="eyebrow">CHOOSE YOUR LOOK</p><h2>A frame for<br/><em>every story.</em></h2><p>Choose a vintage finish for your three-photo Story strip.</p></section>
     <div className="frameList">
       {frameStyles.map((frame) => <button key={frame.id} className={`frameCard ${frameStyle === frame.id ? 'selected' : ''}`} onClick={() => setFrameStyle(frame.id)} style={{ '--paper': frame.paper, '--ink': frame.ink } as React.CSSProperties}>
-        <span className="miniFrame"><i/><i/><i/><b>9060</b></span><span><strong>{frame.name}</strong><small>{frame.note}</small></span><span className="radio"/>
+        <span className="miniFrame"><b>STUDIO9060</b><i/><i/><i/><em>◉</em></span><span className="frameMeta"><strong>{frame.name}</strong><small>{frame.note}</small></span><span className="radio">{frameStyle === frame.id && <Check/>}</span>
       </button>)}
     </div>
-    <div className="orientation"><p className="eyebrow">ORIENTATION</p><div><button className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}><RectangleVertical/> Vertical</button><button className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}><RectangleHorizontal/> Horizontal</button></div></div>
     <button className="primary dark" onClick={openCamera}><Camera size={20}/> Continue to camera</button>
   </main>
 
@@ -174,10 +173,7 @@ function App() {
     {status === 'review' && <div className="reviewMark">Beautiful.</div>}
     {status === 'idle' && <div className={`cropGuide ${layout}`}><span>YOUR PHOTO AREA</span></div>}
     <div className="cameraControls">
-      <div className="layoutToggle" aria-label="Photo layout">
-        <button disabled={status !== 'idle'} className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}><RectangleVertical size={18}/> Vertical <small>3 shots</small></button>
-        <button disabled={status !== 'idle'} className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}><RectangleHorizontal size={18}/> Horizontal <small>3 shots</small></button>
-      </div>
+      <div className="captureInfo"><span>3-PHOTO STORY</span><span>{frameStyles.find((frame) => frame.id === frameStyle)?.name}</span></div>
       <button className="shutter" disabled={!ready || status !== 'idle'} onClick={runSession}><span>{ready ? 'START SESSION' : 'STARTING CAMERA'}</span></button>
       <p>{status === 'idle' ? 'Five seconds between each photo' : status === 'review' ? 'Get ready for the next one' : 'Look right here'}</p>
     </div>
