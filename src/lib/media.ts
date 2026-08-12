@@ -1,7 +1,64 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile } from '@ffmpeg/util'
 
-export type Layout = 'strip' | 'grid'
+export type Layout = 'vertical' | 'horizontal'
+export type FrameStyle = 'noir' | 'ivory' | 'sepia' | 'deco' | 'silver'
+
+export const frameStyles: { id: FrameStyle; name: string; note: string; ink: string; paper: string }[] = [
+  { id: 'noir', name: 'Victorian Noir', note: 'Ornate & dramatic', ink: '#e7d9ba', paper: '#171615' },
+  { id: 'ivory', name: 'Ivory Lace', note: 'Soft & romantic', ink: '#5b5148', paper: '#f0e8d7' },
+  { id: 'sepia', name: 'Sepia Postcard', note: 'Warm & nostalgic', ink: '#513a28', paper: '#c7a978' },
+  { id: 'deco', name: 'Midnight Deco', note: 'Geometric & elegant', ink: '#d7b86b', paper: '#17252a' },
+  { id: 'silver', name: 'Silver Screen', note: 'Classic cinema', ink: '#292929', paper: '#d8d5ce' },
+]
+
+export function frameGeometry(layout: Layout, scale = 1) {
+  const width = (layout === 'vertical' ? 1080 : 1920) * scale
+  const height = (layout === 'vertical' ? 1920 : 1080) * scale
+  const edge = 58 * scale
+  const title = 180 * scale
+  const gap = 30 * scale
+  const footer = 160 * scale
+  const slots = layout === 'vertical'
+    ? Array.from({ length: 3 }, (_, index) => ({ x: edge, y: title + index * ((height - title - footer - gap * 2) / 3 + gap), width: width - edge * 2, height: (height - title - footer - gap * 2) / 3 }))
+    : Array.from({ length: 3 }, (_, index) => ({ x: edge + index * ((width - edge * 2 - gap * 2) / 3 + gap), y: title, width: (width - edge * 2 - gap * 2) / 3, height: height - title - footer }))
+  return { width, height, edge, slots }
+}
+
+function ornament(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, ink: string) {
+  ctx.save(); ctx.translate(x, y); ctx.strokeStyle = ink; ctx.lineWidth = Math.max(2, size * .035)
+  ctx.beginPath(); ctx.moveTo(-size, 0); ctx.bezierCurveTo(-size * .55, -size * .55, -size * .25, size * .55, 0, 0); ctx.bezierCurveTo(size * .25, size * .55, size * .55, -size * .55, size, 0); ctx.stroke()
+  ctx.beginPath(); ctx.arc(0, 0, size * .12, 0, Math.PI * 2); ctx.stroke(); ctx.restore()
+}
+
+function paintFrame(ctx: CanvasRenderingContext2D, layout: Layout, styleId: FrameStyle, transparent = false) {
+  const style = frameStyles.find((item) => item.id === styleId)!
+  const { width, height, edge, slots } = frameGeometry(layout, widthScale(ctx.canvas.width, layout))
+  if (!transparent) { ctx.fillStyle = style.paper; ctx.fillRect(0, 0, width, height) }
+  ctx.strokeStyle = style.ink; ctx.fillStyle = style.ink
+  const line = Math.max(4, width / 300)
+  ctx.lineWidth = line
+  ctx.strokeRect(edge * .35, edge * .35, width - edge * .7, height - edge * .7)
+  ctx.strokeRect(edge * .52, edge * .52, width - edge * 1.04, height - edge * 1.04)
+  slots.forEach((slot) => {
+    ctx.lineWidth = line * 2; ctx.strokeRect(slot.x - line * 2, slot.y - line * 2, slot.width + line * 4, slot.height + line * 4)
+    ctx.lineWidth = line * .65; ctx.strokeRect(slot.x - line * 5, slot.y - line * 5, slot.width + line * 10, slot.height + line * 10)
+  })
+  if (styleId === 'noir' || styleId === 'ivory') {
+    ornament(ctx, width / 2, edge * 1.65, edge * 1.1, style.ink); ornament(ctx, width / 2, height - edge * 1.5, edge * .9, style.ink)
+  } else if (styleId === 'deco') {
+    for (let i = 0; i < 3; i += 1) { ctx.strokeRect(edge * (.65 + i * .16), edge * (.65 + i * .16), width - edge * (1.3 + i * .32), height - edge * (1.3 + i * .32)) }
+  } else if (styleId === 'sepia') {
+    ctx.setLineDash([line * 2, line * 2]); ctx.strokeRect(edge * .7, edge * .7, width - edge * 1.4, height - edge * 1.4); ctx.setLineDash([])
+  } else {
+    for (let x = edge; x < width - edge; x += edge * .42) { ctx.fillRect(x, edge * .55, line * 1.2, line * 2); ctx.fillRect(x, height - edge * .72, line * 1.2, line * 2) }
+  }
+  ctx.textAlign = 'center'; ctx.fillStyle = style.ink
+  ctx.font = `700 ${Math.round(edge * .38)}px Georgia, serif`; ctx.fillText('STUDIO 9060', width / 2, edge * 1.18)
+  ctx.font = `italic ${Math.round(edge * .28)}px Georgia, serif`; ctx.fillText(style.name.toUpperCase(), width / 2, height - edge * .82)
+}
+
+function widthScale(width: number, layout: Layout) { return width / (layout === 'vertical' ? 1080 : 1920) }
 
 function canvasBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
   return new Promise<Blob>((resolve, reject) =>
@@ -29,33 +86,31 @@ export async function captureFrame(video: HTMLVideoElement) {
   return canvasBlob(canvas, 'image/jpeg', 0.94)
 }
 
-export async function composePhotos(blobs: Blob[], layout: Layout) {
-  const border = 28
+export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameStyle) {
   const canvas = document.createElement('canvas')
-  canvas.width = layout === 'strip' ? 1080 : 1600
-  canvas.height = layout === 'strip' ? 1920 : 1200
+  const geometry = frameGeometry(layout)
+  canvas.width = geometry.width
+  canvas.height = geometry.height
   const ctx = canvas.getContext('2d')!
-  ctx.fillStyle = '#f5f1e7'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const frame = frameStyles.find((item) => item.id === style)!
+  ctx.fillStyle = frame.paper; ctx.fillRect(0, 0, canvas.width, canvas.height)
   const images = await Promise.all(blobs.map(async (blob) => {
     const bitmap = await createImageBitmap(blob)
     return bitmap
   }))
 
-  if (layout === 'strip') {
-    const cellHeight = (canvas.height - border * 4) / 3
-    images.forEach((image, index) => drawCover(ctx, image, image.width, image.height, border, border + index * (cellHeight + border), canvas.width - border * 2, cellHeight))
-  } else {
-    const cellWidth = (canvas.width - border * 3) / 2
-    const cellHeight = (canvas.height - border * 3) / 2
-    images.forEach((image, index) => {
-      const column = index % 2
-      const row = Math.floor(index / 2)
-      drawCover(ctx, image, image.width, image.height, border + column * (cellWidth + border), border + row * (cellHeight + border), cellWidth, cellHeight)
-    })
-  }
+  images.forEach((image, index) => { const slot = geometry.slots[index]; drawCover(ctx, image, image.width, image.height, slot.x, slot.y, slot.width, slot.height) })
+  paintFrame(ctx, layout, style, true)
   images.forEach((image) => image.close())
   return canvasBlob(canvas, 'image/jpeg', 0.9)
+}
+
+export async function createVideoFrame(layout: Layout, style: FrameStyle) {
+  const canvas = document.createElement('canvas')
+  const geometry = frameGeometry(layout, 2 / 3)
+  canvas.width = geometry.width; canvas.height = geometry.height
+  paintFrame(canvas.getContext('2d')!, layout, style, true)
+  return canvasBlob(canvas, 'image/png')
 }
 
 export function preferredRecordingType() {
@@ -63,7 +118,7 @@ export function preferredRecordingType() {
   return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? ''
 }
 
-export async function compileReel(clips: Blob[], onProgress: (message: string) => void, signal?: AbortSignal) {
+export async function compileReel(clips: Blob[], layout: Layout, style: FrameStyle, onProgress: (message: string) => void, signal?: AbortSignal) {
   const ffmpeg = new FFmpeg()
   let timeoutId: number | undefined
   const stop = () => ffmpeg.terminate()
@@ -80,11 +135,18 @@ export async function compileReel(clips: Blob[], onProgress: (message: string) =
       for (let index = 0; index < clips.length; index += 1) {
         await ffmpeg.writeFile(`clip${index}.webm`, await fetchFile(clips[index]))
       }
+      await ffmpeg.writeFile('frame.png', await fetchFile(await createVideoFrame(layout, style)))
+      const geometry = frameGeometry(layout, 2 / 3)
       const inputs = clips.flatMap((_, index) => ['-i', `clip${index}.webm`])
-      const filter = clips.map((_, index) => `[${index}:v]scale=720:-2:force_original_aspect_ratio=decrease,fps=15,setsar=1[v${index}]`).join(';')
-        + ';' + clips.map((_, index) => `[v${index}]`).join('') + `concat=n=${clips.length}:v=1:a=0[outv]`
+      const prepared = clips.map((_, index) => {
+        const slot = geometry.slots[index]
+        return `[${index}:v]scale=${Math.round(slot.width)}:${Math.round(slot.height)}:force_original_aspect_ratio=increase,crop=${Math.round(slot.width)}:${Math.round(slot.height)},fps=15,setsar=1[v${index}]`
+      }).join(';')
+      let overlays = `[v0]pad=${geometry.width}:${geometry.height}:${Math.round(geometry.slots[0].x)}:${Math.round(geometry.slots[0].y)}:color=${frameStyles.find((item) => item.id === style)!.paper.replace('#', '0x')}[stage0]`
+      for (let index = 1; index < clips.length; index += 1) { const slot = geometry.slots[index]; overlays += `;[stage${index - 1}][v${index}]overlay=${Math.round(slot.x)}:${Math.round(slot.y)}[stage${index}]` }
+      const filter = `${prepared};${overlays};[stage${clips.length - 1}][${clips.length}:v]overlay=0:0[outv]`
       await ffmpeg.exec([
-        ...inputs, '-filter_complex', filter, '-map', '[outv]', '-an',
+        ...inputs, '-loop', '1', '-i', 'frame.png', '-filter_complex', filter, '-map', '[outv]', '-t', '5', '-an',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-pix_fmt', 'yuv420p',
         '-movflags', '+faststart', 'studio9060-reel.mp4',
       ])

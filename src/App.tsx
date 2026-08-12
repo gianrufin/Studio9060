@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, Download, Grid2X2, Images, RotateCcw, Share2, Sparkles } from 'lucide-react'
+import { Camera, Download, RectangleHorizontal, RectangleVertical, RotateCcw, Share2, Sparkles } from 'lucide-react'
 import { useCamera } from './hooks/useCamera'
-import { captureFrame, compileReel, composePhotos, Layout, preferredRecordingType } from './lib/media'
+import { captureFrame, compileReel, composePhotos, FrameStyle, frameStyles, Layout, preferredRecordingType } from './lib/media'
 
-type Screen = 'welcome' | 'camera' | 'processing' | 'results'
+type Screen = 'welcome' | 'frames' | 'camera' | 'processing' | 'results'
 type Status = 'idle' | 'countdown' | 'flash' | 'review'
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -11,7 +11,8 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
 function App() {
   const { videoRef, streamRef, ready, error, start } = useCamera()
   const [screen, setScreen] = useState<Screen>('welcome')
-  const [layout, setLayout] = useState<Layout>('strip')
+  const [layout, setLayout] = useState<Layout>('vertical')
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>('noir')
   const [status, setStatus] = useState<Status>('idle')
   const [count, setCount] = useState(5)
   const [shot, setShot] = useState(0)
@@ -22,7 +23,7 @@ function App() {
   const running = useRef(false)
   const reelAbort = useRef<AbortController | null>(null)
 
-  const quota = layout === 'strip' ? 3 : 4
+  const quota = 3
   const jpegUrl = useMemo(() => jpeg ? URL.createObjectURL(jpeg) : null, [jpeg])
   const reelUrl = useMemo(() => reel ? URL.createObjectURL(reel) : null, [reel])
   useEffect(() => () => { if (jpegUrl) URL.revokeObjectURL(jpegUrl); if (reelUrl) URL.revokeObjectURL(reelUrl) }, [jpegUrl, reelUrl])
@@ -64,13 +65,13 @@ function App() {
         await sleep(1200)
       }
       setScreen('processing')
-      const strip = await composePhotos(photos, layout)
+      const strip = await composePhotos(photos, layout, frameStyle)
       setJpeg(strip)
       if (clips.length === quota) {
         try {
           reelAbort.current = new AbortController()
           setProgress('Starting the local video engine')
-          setReel(await compileReel(clips, setProgress, reelAbort.current.signal))
+          setReel(await compileReel(clips, layout, frameStyle, setProgress, reelAbort.current.signal))
         }
         catch { setVideoWarning('The photo strip is ready, but this browser could not create the MP4 reel.'); setReel(null) }
       } else setVideoWarning('Video recording is not supported by this browser. Your photo strip is ready.')
@@ -80,7 +81,7 @@ function App() {
       setStatus('idle')
       setScreen('camera')
     } finally { reelAbort.current = null; running.current = false }
-  }, [layout, quota, streamRef, videoRef])
+  }, [frameStyle, layout, quota, streamRef, videoRef])
 
   const files = () => [
     jpeg && new File([jpeg], `studio9060-${Date.now()}-strip.jpg`, { type: 'image/jpeg' }),
@@ -104,8 +105,20 @@ function App() {
   if (screen === 'welcome') return <main className="welcome">
     <div className="brand">STUDIO <span>9060</span></div>
     <section><p className="eyebrow"><Sparkles size={14}/> PRIVATE BY DESIGN</p><h1>Your pocket<br/><em>photo studio.</em></h1><p className="lede">No uploads. No accounts. Just you, your camera, and a little bit of magic.</p></section>
-    <button className="primary dark" onClick={openCamera}><Camera size={20}/> Open camera</button>
+    <button className="primary dark" onClick={() => setScreen('frames')}><Sparkles size={20}/> Choose your frame</button>
     <p className="privacy">Everything stays on this device.</p>
+  </main>
+
+  if (screen === 'frames') return <main className="frameScreen">
+    <header><div className="brand">STUDIO <span>9060</span></div><p>1 / 2</p></header>
+    <section className="frameIntro"><p className="eyebrow">CHOOSE YOUR LOOK</p><h2>A frame for<br/><em>every story.</em></h2><p>Pick a vintage finish, then choose how your three moments will be arranged.</p></section>
+    <div className="frameList">
+      {frameStyles.map((frame) => <button key={frame.id} className={`frameCard ${frameStyle === frame.id ? 'selected' : ''}`} onClick={() => setFrameStyle(frame.id)} style={{ '--paper': frame.paper, '--ink': frame.ink } as React.CSSProperties}>
+        <span className="miniFrame"><i/><i/><i/><b>9060</b></span><span><strong>{frame.name}</strong><small>{frame.note}</small></span><span className="radio"/>
+      </button>)}
+    </div>
+    <div className="orientation"><p className="eyebrow">ORIENTATION</p><div><button className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}><RectangleVertical/> Vertical</button><button className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}><RectangleHorizontal/> Horizontal</button></div></div>
+    <button className="primary dark" onClick={openCamera}><Camera size={20}/> Continue to camera</button>
   </main>
 
   if (screen === 'processing') return <main className="processing"><div className="spinner"/><p className="eyebrow">KEEP THIS SCREEN OPEN</p><h2>{progress}</h2><p>Everything is being made privately on your device.</p>{jpeg && <button className="skipButton" onClick={skipReel}>Skip reel and show photos</button>}</main>
@@ -135,8 +148,8 @@ function App() {
     {status === 'review' && <div className="reviewMark">Beautiful.</div>}
     <div className="cameraControls">
       <div className="layoutToggle" aria-label="Photo layout">
-        <button disabled={status !== 'idle'} className={layout === 'strip' ? 'active' : ''} onClick={() => setLayout('strip')}><Images size={18}/> Strip <small>3 shots</small></button>
-        <button disabled={status !== 'idle'} className={layout === 'grid' ? 'active' : ''} onClick={() => setLayout('grid')}><Grid2X2 size={18}/> Grid <small>4 shots</small></button>
+        <button disabled={status !== 'idle'} className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}><RectangleVertical size={18}/> Vertical <small>3 shots</small></button>
+        <button disabled={status !== 'idle'} className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}><RectangleHorizontal size={18}/> Horizontal <small>3 shots</small></button>
       </div>
       <button className="shutter" disabled={!ready || status !== 'idle'} onClick={runSession}><span>{ready ? 'START SESSION' : 'STARTING CAMERA'}</span></button>
       <p>{status === 'idle' ? 'Five seconds between each photo' : status === 'review' ? 'Get ready for the next one' : 'Look right here'}</p>
