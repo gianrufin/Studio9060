@@ -22,7 +22,7 @@ export const frameStyles: { id: FrameStyle; name: string; note: string; ink: str
   { id: 'silver', name: 'Silver Screen', note: 'Classic cinema', ink: '#292929', paper: '#d8d5ce' },
 ]
 
-export function frameGeometry(layout: Layout, scale = 1) {
+export function frameGeometry(layout: Layout, scale = 1, count: 3 | 4 = 3) {
   const width = 1080 * scale
   const height = 1920 * scale
   const edge = 58 * scale
@@ -30,7 +30,7 @@ export function frameGeometry(layout: Layout, scale = 1) {
   const gap = 30 * scale
   const footer = 160 * scale
   const slots = layout === 'vertical'
-    ? Array.from({ length: 3 }, (_, index) => ({ x: edge, y: title + index * ((height - title - footer - gap * 2) / 3 + gap), width: width - edge * 2, height: (height - title - footer - gap * 2) / 3 }))
+    ? Array.from({ length: count }, (_, index) => ({ x: edge, y: title + index * ((height - title - footer - gap * (count - 1)) / count + gap), width: width - edge * 2, height: (height - title - footer - gap * (count - 1)) / count }))
     : Array.from({ length: 3 }, (_, index) => ({ x: edge + index * ((width - edge * 2 - gap * 2) / 3 + gap), y: height * .29, width: (width - edge * 2 - gap * 2) / 3, height: height * .43 }))
   return { width, height, edge, slots }
 }
@@ -41,9 +41,9 @@ function ornament(ctx: CanvasRenderingContext2D, x: number, y: number, size: num
   ctx.beginPath(); ctx.arc(0, 0, size * .12, 0, Math.PI * 2); ctx.stroke(); ctx.restore()
 }
 
-function paintFrame(ctx: CanvasRenderingContext2D, layout: Layout, styleId: FrameStyle, transparent = false) {
+function paintFrame(ctx: CanvasRenderingContext2D, layout: Layout, styleId: FrameStyle, count: 3 | 4 = 3, transparent = false) {
   const style = frameStyles.find((item) => item.id === styleId)!
-  const { width, height, edge, slots } = frameGeometry(layout, widthScale(ctx.canvas.width, layout))
+  const { width, height, edge, slots } = frameGeometry(layout, widthScale(ctx.canvas.width, layout), count)
   if (!transparent) { ctx.fillStyle = style.paper; ctx.fillRect(0, 0, width, height) }
   ctx.strokeStyle = style.ink; ctx.fillStyle = style.ink
   const line = Math.max(4, width / 300)
@@ -72,19 +72,19 @@ function paintFrame(ctx: CanvasRenderingContext2D, layout: Layout, styleId: Fram
   ctx.strokeRect(width / 2 - edge * .42, height - edge * 1.77, edge * .84, edge * .68)
 }
 
-export function framePreview(style: FrameStyle) {
+export function framePreview(style: FrameStyle, count: 3 | 4) {
   const canvas = document.createElement('canvas')
   canvas.width = 270; canvas.height = 480
   const ctx = canvas.getContext('2d')!
   const frame = frameStyles.find((item) => item.id === style)!
   ctx.fillStyle = frame.paper; ctx.fillRect(0, 0, canvas.width, canvas.height)
-  const { slots } = frameGeometry('vertical', .25)
+  const { slots } = frameGeometry('vertical', .25, count)
   slots.forEach((slot, index) => {
     const gradient = ctx.createLinearGradient(slot.x, slot.y, slot.x + slot.width, slot.y + slot.height)
     gradient.addColorStop(0, ['#62564d', '#8b8179', '#93724f'][index]); gradient.addColorStop(1, ['#c8b5a0', '#afa299', '#d1b389'][index])
     ctx.fillStyle = gradient; ctx.fillRect(slot.x, slot.y, slot.width, slot.height)
   })
-  paintFrame(ctx, 'vertical', style, true)
+  paintFrame(ctx, 'vertical', style, count, true)
   return canvas.toDataURL('image/png')
 }
 
@@ -115,9 +115,9 @@ export async function captureFrame(video: HTMLVideoElement, mirror = true) {
   return canvasBlob(canvas, 'image/jpeg', 0.94)
 }
 
-export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameStyle, filter: FilterStyle) {
+export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameStyle, count: 3 | 4, filter: FilterStyle) {
   const canvas = document.createElement('canvas')
-  const geometry = frameGeometry(layout)
+  const geometry = frameGeometry(layout, 1, count)
   canvas.width = geometry.width
   canvas.height = geometry.height
   const ctx = canvas.getContext('2d')!
@@ -130,16 +130,16 @@ export async function composePhotos(blobs: Blob[], layout: Layout, style: FrameS
 
   const photoFilter = filterStyles.find((item) => item.id === filter)!.css
   images.forEach((image, index) => { const slot = geometry.slots[index]; drawCover(ctx, image, image.width, image.height, slot.x, slot.y, slot.width, slot.height, photoFilter) })
-  paintFrame(ctx, layout, style, true)
+  paintFrame(ctx, layout, style, count, true)
   images.forEach((image) => image.close())
   return canvasBlob(canvas, 'image/jpeg', 0.9)
 }
 
-export async function createVideoFrame(layout: Layout, style: FrameStyle) {
+export async function createVideoFrame(layout: Layout, style: FrameStyle, count: 3 | 4) {
   const canvas = document.createElement('canvas')
-  const geometry = frameGeometry(layout, 2 / 3)
+  const geometry = frameGeometry(layout, 2 / 3, count)
   canvas.width = geometry.width; canvas.height = geometry.height
-  paintFrame(canvas.getContext('2d')!, layout, style, true)
+  paintFrame(canvas.getContext('2d')!, layout, style, count, true)
   return canvasBlob(canvas, 'image/png')
 }
 
@@ -148,7 +148,7 @@ export function preferredRecordingType() {
   return types.find((type) => MediaRecorder.isTypeSupported(type)) ?? ''
 }
 
-export async function compileReel(clips: Blob[], layout: Layout, style: FrameStyle, selectedFilter: FilterStyle, onProgress: (message: string) => void, signal?: AbortSignal) {
+export async function compileReel(clips: Blob[], layout: Layout, style: FrameStyle, count: 3 | 4, selectedFilter: FilterStyle, onProgress: (message: string) => void, signal?: AbortSignal) {
   const ffmpeg = new FFmpeg()
   let timeoutId: number | undefined
   const stop = () => ffmpeg.terminate()
@@ -166,8 +166,8 @@ export async function compileReel(clips: Blob[], layout: Layout, style: FrameSty
         await ffmpeg.writeFile(`clip${index}.webm`, await fetchFile(clips[index]))
       }
       onProgress('Composing your moving frame')
-      await ffmpeg.writeFile('frame.png', await fetchFile(await createVideoFrame(layout, style)))
-      const geometry = frameGeometry(layout, 2 / 3)
+      await ffmpeg.writeFile('frame.png', await fetchFile(await createVideoFrame(layout, style, count)))
+      const geometry = frameGeometry(layout, 2 / 3, count)
       const inputs = clips.flatMap((_, index) => ['-i', `clip${index}.webm`])
       const prepared: string = clips.map((_, index): string => {
         const slot = geometry.slots[index]

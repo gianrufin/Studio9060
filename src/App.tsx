@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, Check, Download, RefreshCw, RotateCcw, Share2, Sparkles, Volume2, VolumeX } from 'lucide-react'
 import { useCamera } from './hooks/useCamera'
-import { captureFrame, compileReel, composePhotos, FilterStyle, filterStyles, FrameStyle, framePreview, frameStyles, Layout, preferredRecordingType } from './lib/media'
+import { captureFrame, compileReel, composePhotos, FilterStyle, filterStyles, FrameStyle, frameStyles, Layout, preferredRecordingType } from './lib/media'
 
-type Screen = 'welcome' | 'frames' | 'camera' | 'processing' | 'results'
+type Screen = 'welcome' | 'frames' | 'filters' | 'camera' | 'processing' | 'results'
 type Status = 'idle' | 'countdown' | 'flash' | 'review'
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -13,6 +13,7 @@ function App() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const layout: Layout = 'vertical'
   const [frameStyle, setFrameStyle] = useState<FrameStyle>('noir')
+  const [photoCount, setPhotoCount] = useState<3 | 4>(3)
   const [filterStyle, setFilterStyle] = useState<FilterStyle>('vintage')
   const [status, setStatus] = useState<Status>('idle')
   const [count, setCount] = useState(5)
@@ -27,7 +28,7 @@ function App() {
   const reelAbort = useRef<AbortController | null>(null)
   const audioContext = useRef<AudioContext | null>(null)
 
-  const quota = 3
+  const quota = photoCount
   const jpegUrl = useMemo(() => jpeg ? URL.createObjectURL(jpeg) : null, [jpeg])
   const reelUrl = useMemo(() => reel ? URL.createObjectURL(reel) : null, [reel])
   useEffect(() => () => { if (jpegUrl) URL.revokeObjectURL(jpegUrl); if (reelUrl) URL.revokeObjectURL(reelUrl) }, [jpegUrl, reelUrl])
@@ -83,13 +84,13 @@ function App() {
       }
       setScreen('processing')
       setProgress('Composing your photo strip')
-      const strip = await composePhotos(photos, layout, frameStyle, filterStyle)
+      const strip = await composePhotos(photos, layout, frameStyle, photoCount, filterStyle)
       setJpeg(strip)
       if (clips.length === quota) {
         try {
           reelAbort.current = new AbortController()
           setProgress('Starting the local video engine')
-          setReel(await compileReel(clips, layout, frameStyle, filterStyle, setProgress, reelAbort.current.signal))
+          setReel(await compileReel(clips, layout, frameStyle, photoCount, filterStyle, setProgress, reelAbort.current.signal))
         }
         catch { setVideoWarning('The photo strip is ready, but this browser could not create the MP4 reel.'); setReel(null) }
       } else setVideoWarning('Video recording is not supported by this browser. Your photo strip is ready.')
@@ -99,7 +100,7 @@ function App() {
       setStatus('idle')
       setScreen('camera')
     } finally { reelAbort.current = null; running.current = false }
-  }, [facingMode, filterStyle, frameStyle, layout, muted, quota, streamRef, videoRef])
+  }, [facingMode, filterStyle, frameStyle, layout, muted, photoCount, quota, streamRef, videoRef])
 
   const saveFile = async (kind: 'photo' | 'video') => {
     setSaveError(null)
@@ -117,11 +118,8 @@ function App() {
   }
 
   const reset = async () => {
-    setJpeg(null); setReel(null); setShot(0); setStatus('idle'); setVideoWarning(null); setSaveError(null); setScreen('camera')
-    await sleep(80)
-    const video = videoRef.current
-    if (video && streamRef.current?.active) { video.srcObject = streamRef.current; await video.play().catch(() => start()) }
-    else await start()
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    setJpeg(null); setReel(null); setShot(0); setStatus('idle'); setVideoWarning(null); setSaveError(null); setScreen('frames')
   }
 
   const skipReel = () => {
@@ -139,17 +137,22 @@ function App() {
   </main>
 
   if (screen === 'frames') return <main className="frameScreen">
-    <header><div className="brand">STUDIO <span>9060</span></div><p>1 / 2</p></header>
-    <section className="frameIntro"><p className="eyebrow">CHOOSE YOUR LOOK</p><h2>A frame for<br/><em>every story.</em></h2><p>Choose a vintage finish for your three-photo Story strip.</p></section>
+    <header><div className="brand">Studio<span>9060</span></div><p>1 / 3</p></header>
+    <section className="frameIntro"><p className="eyebrow">CHOOSE YOUR FRAME</p><h2>Your story,<br/><em>beautifully framed.</em></h2><p>Select a three-photo or four-photo 9:16 frame.</p></section>
     <div className="frameList">
-      {frameStyles.map((frame) => <button key={frame.id} className={`frameCard ${frameStyle === frame.id ? 'selected' : ''}`} onClick={() => setFrameStyle(frame.id)}>
-        <img className="miniFrame" src={framePreview(frame.id)} alt={`${frame.name} frame preview`}/><span className="frameMeta"><strong>{frame.name}</strong><small>{frame.note}</small></span><span className="radio">{frameStyle === frame.id && <Check/>}</span>
-      </button>)}
+      {frameStyles.flatMap((frame) => ([3, 4] as const).map((count) => <button key={`${frame.id}-${count}`} className={`frameCard ${frameStyle === frame.id && photoCount === count ? 'selected' : ''}`} onClick={() => { setFrameStyle(frame.id); setPhotoCount(count) }}>
+        <img className="miniFrame" src={`${import.meta.env.BASE_URL}${frame.id === 'noir' ? 'victorian-noir' : frame.id === 'ivory' ? 'ivory-lace' : frame.id === 'sepia' ? 'sepia-postcard' : frame.id === 'deco' ? 'midnight-deco' : 'silver-screen'}-${count}-photo.svg`} alt={`${frame.name}, ${count} photo spaces`}/><span className="frameMeta"><strong>{frame.name}</strong><small>{count} photo spaces</small></span><span className="radio">{frameStyle === frame.id && photoCount === count && <Check/>}</span>
+      </button>))}
     </div>
-    <section className="filterSection"><p className="eyebrow">CHOOSE A FILTER</p><div className="filterList">
-      {filterStyles.map((filter) => <button key={filter.id} className={filterStyle === filter.id ? 'selected' : ''} onClick={() => setFilterStyle(filter.id)}><span style={{ filter: filter.css }}/><small>{filter.name}</small></button>)}
-    </div></section>
-    <button className="primary dark" onClick={openCamera}><Camera size={20}/> Continue to camera</button>
+    <button className="primary dark stickyAction" onClick={() => setScreen('filters')}>Continue</button>
+  </main>
+
+  if (screen === 'filters') return <main className="filterScreen onboardingScreen">
+    <header><button className="backButton" onClick={() => setScreen('frames')}>‹</button><div className="brand">Studio<span>9060</span></div><p>2 / 3</p></header>
+    <section className="stepIntro"><p className="eyebrow">CHOOSE YOUR FILTER</p><h2>Set the mood.</h2><p>Preview each look on the same sample shot.</p></section>
+    <div className="filterGrid">{filterStyles.map((filter) => <button key={filter.id} className={filterStyle === filter.id ? 'selected' : ''} onClick={() => setFilterStyle(filter.id)}><span className="stockShot" style={{ filter: filter.css }}/><strong>{filter.name}</strong>{filterStyle === filter.id && <i><Check/></i>}</button>)}</div>
+    <p className="photoCredit">Sample photo by Ocho Artex on Unsplash</p>
+    <button className="primary dark stickyAction" onClick={openCamera}><Camera size={20}/> Open camera</button>
   </main>
 
   if (screen === 'processing') return <main className="processing"><div className="materialMark">9060</div><div className="waveLoader"><i/><i/><i/></div><p className="eyebrow">PROCESSING ON DEVICE</p><h2>{progress}</h2><p>No estimated percentage. Processing time depends on your phone.</p>{jpeg && <button className="textButton" onClick={skipReel}>Skip reel and show photos</button>}</main>
@@ -179,7 +182,7 @@ function App() {
     {status === 'review' && <div className="reviewMark">Beautiful.</div>}
     {status === 'idle' && <div className={`cropGuide ${layout}`}><span>YOUR PHOTO AREA</span></div>}
     <div className="cameraControls">
-      <div className="captureInfo"><span>3-PHOTO STORY</span><span>{frameStyles.find((frame) => frame.id === frameStyle)?.name}</span></div>
+      <div className="captureInfo"><span>{photoCount}-PHOTO STORY</span><span>{frameStyles.find((frame) => frame.id === frameStyle)?.name}</span></div>
       <button className="shutter" disabled={!ready || status !== 'idle'} onClick={runSession}><span>{ready ? 'START SESSION' : 'STARTING CAMERA'}</span></button>
       <p>{status === 'idle' ? 'Five seconds between each photo' : status === 'review' ? 'Get ready for the next one' : 'Look right here'}</p>
     </div>
